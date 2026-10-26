@@ -24,7 +24,7 @@
   .row span:first-child{flex:0 0 auto}
   .row span:last-child{text-align:right;word-break:break-word}
   .name{font-weight:700;max-width:80%;word-break:break-word}
-  .item+.item{margin-top:10px}
+  .item+.item{margin-top:20px}
   .big{font-size:34px;font-weight:700}
   .small{font-size:19px}
   .tag{display:inline-block;border:2px solid #000;padding:0 10px;font-weight:700;margin-bottom:6px}
@@ -61,6 +61,7 @@ const SEP = '~';
    dm  Modelo      dc Capacidad      dk Color      es Estado_Dispositivo      ri IMEI      dp Precio_Venta
    a1, a2, a3  LVL1, LVL2, LVL3      aq Cantidad_Vendida      au Precio_Venta      at Total_Fila
    pd  Pago dispositivos             pa Pago accesorios (Descripcion_Pago)
+   rd  IDDispositivo de los dispositivos (Ref)
    rp  IDPedido de los pedidos de accesorios
    e   Envío total                   t  Total general */
 const q = new URLSearchParams(location.search);
@@ -71,7 +72,7 @@ const DEMO = {
   dm:'iPhone 15 Pro Max~iPhone 13', dc:'256 GB~128 GB', dk:'Titanio~Azul', es:'Nuevo~Usado',
   ri:'356789012345678~356789012349999', dp:'950~450',
   a1:'Cables~Protectores', a2:'USB-C~iPhone 15', a3:'Anker 1m~Vidrio templado', aq:'2~1', au:'8~5', at:'16~5',
-  pd:'Transferencia', pa:'Efectivo', rp:'PED-456', e:'5', t:'1426'
+  pd:'Transferencia', pa:'Efectivo', rd:'DISP-123~DISP-124', rp:'PED-456', e:'5', t:'1426'
 };
 const raw  = k => hayDatos ? (q.get(k) || '') : (DEMO[k] || '');
 const get  = k => raw(k).trim();
@@ -142,7 +143,7 @@ function render(){
 
   const pago = k => list(k).filter(Boolean).join(' / ');
   const pd = pago('pd'), pa = pago('pa');
-  const refs = [...ri, ...list('rp')].filter(Boolean).join(', ');
+  const refs = [...list('rd'), ...list('rp')].filter(Boolean).join(', ');
 
   let h = '';
   h += `<div class="c"><div class="neg">${esc(NEGOCIO.nombre)}</div>`;
@@ -185,7 +186,7 @@ function render(){
   if (acc.length)  h += line('Pago accesorios:', pa);
 
   /* ---- Referencias y pie ---- */
-  if (refs) h += `<div class="small" style="margin-top:6px;word-break:break-word">Ref: ${esc(refs)}</div>`;
+  if (refs) h += `<div class="small" style="margin-top:18px;word-break:break-word">Ref: ${esc(refs)}</div>`;
   h += `<div class="sep"></div><div class="c b">${esc(PIE)}</div>`;
   h += `<div class="c small" style="margin-top:6px">Emitido: ${fechaTxt()}</div>`;
   document.getElementById('ticket').innerHTML = h;
