@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ticket de venta – Phone SV (factura combinada)</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;padding:12px 0 100px;background:#dcdcdc;font-family:-apple-system,Helvetica,Arial,sans-serif}
+  /* La vista previa se reduce al ancho del teléfono; el ticket real sigue midiendo 576 px */
+  #wrap{margin:0 auto;overflow:hidden}
+  #ticket{width:576px;transform-origin:top left;background:#fff;color:#000;padding:22px 20px 30px;
+          font-family:"Courier New",Courier,monospace;font-size:23px;line-height:1.28}
+  .bar{position:fixed;left:0;right:0;bottom:0;display:flex;justify-content:center;
+       padding:14px 12px calc(14px + env(safe-area-inset-bottom));
+       background:linear-gradient(to top,#dcdcdc 65%,rgba(220,220,220,0))}
+  .bar button{font-size:17px;padding:12px 30px;border:1px solid #bdbdc2;border-radius:999px;
+              background:#f4f4f6;color:#222;font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.18)}
+  .bar button:active{background:#e4e4e8}
+  .c{text-align:center}.b{font-weight:700}
+  .neg{font-size:38px;font-weight:700;letter-spacing:1px}
+  .sep{border-top:2px dashed #000;margin:12px 0}
+  .row{display:flex;justify-content:space-between;gap:10px}
+  .row span:first-child{flex:0 0 auto}
+  .row span:last-child{text-align:right;word-break:break-word}
+  .name{font-weight:700;max-width:80%;word-break:break-word}
+  .item+.item{margin-top:10px}
+  .big{font-size:34px;font-weight:700}
+  .small{font-size:19px}
+  .tag{display:inline-block;border:2px solid #000;padding:0 10px;font-weight:700;margin-bottom:6px}
+  @media print{
+    @page{size:80mm auto;margin:0}
+    body{background:#fff;padding:0}.bar{display:none}
+    #wrap{width:auto!important;height:auto!important;overflow:visible}
+    #ticket{transform:none!important;width:72mm;padding:3mm;font-size:3.1mm}
+    .neg{font-size:5mm}.big{font-size:4.4mm}.small{font-size:2.5mm}
+  }
+</style>
+</head>
+<body>
+<div id="wrap"><div id="ticket"></div></div>
+<div class="bar"><button id="btnPng">🖨️ Imprimir</button></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script>
+/* ============ CONFIGURACIÓN ============ */
+const NEGOCIO = {
+  nombre:   'PHONE SV',
+  direccion:'Plaza Comercial Pasares, San Juan Opico, La Libertad',
+  tel:      'WhatsApp: 6064-3493'
+};
+const MONEDA = '$';
+const PIE = 'Gracias por su compra';
+const SEP = '~';
+/* ======================================= */
+
+/* Parámetros de URL (los mismos de la factura combinada + "as"; listas separadas por "~"):
+   n   NumFactura                    f   Fecha (mes/día/año)
+   cli Nombre del cliente            tel Teléfono
+   as  Asistente (Nombre_Vendedor del primer dispositivo)
+   dm  Modelo      dc Capacidad      dk Color      es Estado_Dispositivo      ri IMEI      dp Precio_Venta
+   a1, a2, a3  LVL1, LVL2, LVL3      aq Cantidad_Vendida      au Precio_Venta      at Total_Fila
+   pd  Pago dispositivos             pa Pago accesorios (Descripcion_Pago)
+   rp  IDPedido de los pedidos de accesorios
+   e   Envío total                   t  Total general */
+const q = new URLSearchParams(location.search);
+const hayDatos = q.has('n') || q.has('dm') || q.has('a1');
+
+const DEMO = {
+  n:'FC-0001', f:'10/25/2026', cli:'Cliente de prueba', tel:'7000-0000', as:'Jairo',
+  dm:'iPhone 15 Pro Max~iPhone 13', dc:'256 GB~128 GB', dk:'Titanio~Azul', es:'Nuevo~Usado',
+  ri:'356789012345678~356789012349999', dp:'950~450',
+  a1:'Cables~Protectores', a2:'USB-C~iPhone 15', a3:'Anker 1m~Vidrio templado', aq:'2~1', au:'8~5', at:'16~5',
+  pd:'Transferencia', pa:'Efectivo', rp:'PED-456', e:'5', t:'1426'
+};
+const raw  = k => hayDatos ? (q.get(k) || '') : (DEMO[k] || '');
+const get  = k => raw(k).trim();
+const list = k => { const v = raw(k); if (!v.trim()) return []; return v.split(SEP).map(x => x.trim()); };
+
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* Lee montos como "1.160,50", "1,160.50", "12,5", "1.160" o "1160.5" */
+const num = s => {
+  let t = String(s ?? '').replace(/[^0-9.,-]/g, '');
+  if (!t) return 0;
+  const hasDot = t.includes('.'), hasCom = t.includes(',');
+  if (hasDot && hasCom) {
+    t = t.lastIndexOf(',') > t.lastIndexOf('.') ? t.replace(/\./g, '').replace(',', '.') : t.replace(/,/g, '');
+  } else if (hasCom) {
+    t = /,\d{1,2}$/.test(t) ? t.replace(',', '.') : t.replace(/,/g, '');
+  } else if (hasDot) {
+    if (/^-?\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '');
+  }
+  const n = parseFloat(t); return isNaN(n) ? 0 : n;
+};
+const money = n => MONEDA + n.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+const line = (a, b) => b ? `<div class="row"><span>${esc(a)}</span><span>${esc(b)}</span></div>` : '';
+
+/* Fecha de venta: mes/día/año (o aaaa-mm-dd) -> día/mes/año */
+function fechaVenta(v){
+  const t = String(v || '').trim(); if (!t) return '';
+  const p2 = n => String(n).padStart(2, '0');
+  let m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) return `${p2(m[3])}/${p2(m[2])}/${m[1]}`;
+  m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (!m) return t;
+  let a = +m[1], b = +m[2];
+  if (a > 12) return `${p2(a)}/${p2(b)}/${m[3]}`;      // ya viene día/mes/año
+  return `${p2(b)}/${p2(a)}/${m[3]}`;                  // mes/día/año -> día/mes/año
+}
+
+/* Fecha y hora de emisión del ticket, 24 h */
+function fechaTxt(){
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  return `${p(d.getDate())}/${p(d.getMonth()+1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function render(){
+  /* Dispositivos */
+  const dm = list('dm'), dc = list('dc'), dk = list('dk'), es = list('es'), ri = list('ri'), dp = list('dp');
+  const disp = dm.map((m, i) => ({
+    modelo:m, cap:dc[i] || '', color:dk[i] || '', estado:es[i] || '', imei:ri[i] || '', precio:num(dp[i])
+  }));
+
+  /* Accesorios: nombre = LVL1 + LVL2 + LVL3 */
+  const a1 = list('a1'), a2 = list('a2'), a3 = list('a3'), aq = list('aq'), au = list('au'), at = list('at');
+  const nAcc = Math.max(a1.length, a2.length, a3.length);
+  const acc = [];
+  for (let i = 0; i < nAcc; i++) {
+    const cant = num(aq[i]) || 1, unit = num(au[i]);
+    acc.push({
+      nombre:[a1[i], a2[i], a3[i]].filter(Boolean).join(' '),
+      cant, unit,
+      total: at[i] !== undefined && at[i] !== '' ? num(at[i]) : cant * unit
+    });
+  }
+
+  const subDisp = disp.reduce((s, x) => s + x.precio, 0);
+  const subAcc  = acc.reduce((s, x) => s + x.total, 0);
+  const envio   = num(get('e'));
+  const total   = q.has('t') || !hayDatos ? num(get('t')) : subDisp + subAcc + envio;
+
+  const pago = k => list(k).filter(Boolean).join(' / ');
+  const pd = pago('pd'), pa = pago('pa');
+  const refs = [...ri, ...list('rp')].filter(Boolean).join(', ');
+
+  let h = '';
+  h += `<div class="c"><div class="neg">${esc(NEGOCIO.nombre)}</div>`;
+  h += `<div class="small">${esc(NEGOCIO.direccion)}</div><div class="small">${esc(NEGOCIO.tel)}</div></div>`;
+  h += `<div class="sep"></div>`;
+
+  h += `<div class="c"><span class="tag">TICKET DE VENTA</span><div class="b">FACTURA COMBINADA</div></div>`;
+  h += `<div class="sep"></div>`;
+  h += line('Factura:', get('n'));
+  h += line('Fecha de venta:', fechaVenta(get('f')));
+  h += line('Cliente:', get('cli'));
+  h += line('Tel:', get('tel'));
+  h += line('Asistente:', get('as'));
+
+  /* ---- Ítems: dispositivos primero, accesorios después, todo consecutivo ---- */
+  h += `<div class="sep"></div><div class="row b"><span>DESCRIPCIÓN</span><span>IMPORTE</span></div><div class="sep" style="margin:6px 0"></div>`;
+  disp.forEach(x => {
+    const cap = x.cap && x.cap !== '-' ? ' ' + x.cap : '';
+    h += `<div class="item"><div class="name">${esc(x.modelo + cap)}</div>`;
+    h += `<div class="row"><span>1 x ${money(x.precio)}</span><span>${money(x.precio)}</span></div>`;
+    const det = [x.color, x.estado, x.imei].filter(Boolean).join(' · ');
+    if (det) h += `<div class="small" style="word-break:break-word">${esc(det)}</div>`;
+    h += `</div>`;
+  });
+  acc.forEach(x => {
+    h += `<div class="item"><div class="name">${esc(x.nombre)}</div>`;
+    h += `<div class="row"><span>${x.cant} x ${money(x.unit)}</span><span>${money(x.total)}</span></div></div>`;
+  });
+
+  /* ---- Totales ---- */
+  h += `<div class="sep"></div>`;
+  if (disp.length) h += line('Dispositivos:', money(subDisp));
+  if (acc.length)  h += line('Accesorios:', money(subAcc));
+  h += line('Envío:', money(envio));
+  h += `<div class="row big"><span>TOTAL:</span><span>${money(total)}</span></div>`;
+
+  /* ---- Pago ---- */
+  h += `<div class="sep"></div>`;
+  if (disp.length) h += line('Pago dispositivos:', pd);
+  if (acc.length)  h += line('Pago accesorios:', pa);
+
+  /* ---- Referencias y pie ---- */
+  if (refs) h += `<div class="small" style="margin-top:6px;word-break:break-word">Ref: ${esc(refs)}</div>`;
+  h += `<div class="sep"></div><div class="c b">${esc(PIE)}</div>`;
+  h += `<div class="c small" style="margin-top:6px">Emitido: ${fechaTxt()}</div>`;
+  document.getElementById('ticket').innerHTML = h;
+}
+render();
+
+/* Ajuste de la vista previa al ancho de la pantalla */
+function fit(){
+  const t = document.getElementById('ticket'), w = document.getElementById('wrap');
+  const k = Math.min(1, (window.innerWidth - 24) / 576);
+  t.style.transform = `scale(${k})`;
+  w.style.width  = (576 * k) + 'px';
+  w.style.height = (t.offsetHeight * k) + 'px';
+}
+fit();
+window.addEventListener('resize', fit);
+window.addEventListener('load', fit);
+
+/* Imprimir: genera el PNG a tamaño real (576 px) y lo comparte a la app de la impresora (solo el archivo, sin title) */
+document.getElementById('btnPng').addEventListener('click', async () => {
+  const holder = document.createElement('div');
+  holder.style.cssText = 'position:absolute;left:-10000px;top:0;width:576px';
+  const clone = document.getElementById('ticket').cloneNode(true);
+  clone.style.transform = 'none';
+  holder.appendChild(clone);
+  document.body.appendChild(holder);
+  try {
+    const canvas = await html2canvas(clone, {scale: 2, backgroundColor: '#ffffff', windowWidth: 576, scrollX: 0, scrollY: 0});
+    const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+    const file = new File([blob], `ticket-factura-combinada-${get('n') || 'venta'}.png`, {type: 'image/png'});
+    if (navigator.canShare && navigator.canShare({files: [file]})) {
+      try { await navigator.share({files: [file]}); } catch (e) {}
+    } else {
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = file.name; a.click();
+    }
+  } finally { holder.remove(); }
+});
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+</script>
+</body>
+</html>
